@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Attempts to fix encoding issues in plain text.
+# Attempt to fix encoding issues in plain text and normalize unicode encoding.
 
 import sys
 import os
@@ -16,8 +16,7 @@ logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 
 
-def argparser():
-    ap = ArgumentParser()
+def add_normalize_encoding_args(ap):
     ap.add_argument(
         '--no-fix',
         default=False,
@@ -36,6 +35,11 @@ def argparser():
         default='NFKC',
         help='unicode normalization to apply',
     )
+
+
+def argparser():
+    ap = ArgumentParser()
+    add_normalize_encoding_args(ap)
     ap.add_argument(
         'text',
         nargs='+',
@@ -46,6 +50,7 @@ def argparser():
 
 def remove_nonprintable(string):
     if remove_nonprintable.table is None:
+        # keep newlines, tabs, and soft hyphens
         exceptions = { '\n', '\t', '\u00AD' }
         nonprintable = [
             chr(c) for c in range(sys.maxunicode) if
@@ -56,10 +61,7 @@ def remove_nonprintable(string):
 remove_nonprintable.table = None
 
 
-def normalize_encoding(fn, args):
-    with open(fn) as f:
-        text = f.read()
-
+def normalize_encoding(text, args):
     if not args.no_fix:
         try:
             text = ftfy.fix_encoding(text)
@@ -75,7 +77,7 @@ def normalize_encoding(fn, args):
     if not args.keep_nonprintable:
         text = remove_nonprintable(text)
 
-    print(text, end='')
+    return text
 
 
 def main(argv):
@@ -84,7 +86,10 @@ def main(argv):
     logger.setLevel(logging.INFO)
 
     for fn in args.text:
-        normalize_encoding(fn, args)
+        with open(fn) as f:
+            text = f.read()
+        text = normalize_encoding(text, args)
+        print(text, end='')
 
 
 if __name__ == '__main__':

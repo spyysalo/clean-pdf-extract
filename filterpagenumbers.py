@@ -7,8 +7,9 @@ import logging
 
 from statistics import median
 from collections import defaultdict
-from itertools import tee
 from argparse import ArgumentParser
+
+from common import pairwise
 
 
 # Defaults for command-line arguments
@@ -23,20 +24,24 @@ logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 
 
-def argparser():
-    ap = ArgumentParser()
+def add_filter_page_numbers_args(ap):
     ap.add_argument(
-        '--max-gap',
+        '--max-page-number-gap',
         type=int,
         default=DEFAULT_MAX_GAP,
         help='maximum gap in page number sequence'
     )
     ap.add_argument(
-        '--mark',
+        '--mark-page-numbers',
         default=False,
         action='store_true',
         help='mark page numbers instead of filtering'
     )
+
+
+def argparser():
+    ap = ArgumentParser()
+    add_filter_page_numbers_args(ap)
     ap.add_argument(
         '--debug',
         default=False,
@@ -81,12 +86,6 @@ class Candidate:
 
     def __lt__(self, other):
         return self.number < other.number
-
-
-def pairwise(iterable):
-    a, b = tee(iterable)
-    next(b, None)
-    return zip(a, b)
 
 
 def longest_increasing_subsequence(seq):
@@ -179,7 +178,7 @@ def estimate_page_length(sequences):
 
 
 def plausible_page_number_pair(prev, curr, page_length, args):
-    if curr.number > prev.number + args.max_gap:
+    if curr.number > prev.number + args.max_page_number_gap:
         return False
     elif 20 * avg_page_len(prev, curr) < page_length:
         return False    # much too short a page
@@ -244,7 +243,7 @@ def repair_sequence(sequence, lines, page_length, args):
     for prev, curr in pairwise(sequence):
         repaired.append(prev)
         missing = list(range(prev.number+1, curr.number))
-        if len(missing) > args.max_gap:
+        if len(missing) > args.max_page_number_gap:
             logger.warning(f'not attempting to repair {missing}')
             continue
         for number in missing:
@@ -285,10 +284,7 @@ def make_page_number_sequence(candidates, args):
     return sequence, page_length
 
 
-def process_page_numbers(fn, args):
-    with open(fn) as f:
-        text = f.read()
-
+def filter_page_numbers(text, args):
     lines = text.splitlines()
 
     candidates = page_number_candidates(lines)
@@ -299,18 +295,21 @@ def process_page_numbers(fn, args):
     repaired = repair_sequence(sequence, lines, page_length, args)
     sequence, page_length = make_page_number_sequence(repaired, args)
 
+    filtered = []
     candidate_by_line_index = { c.line_index: c for c in sequence }
     for i, line in enumerate(lines):
         c = candidate_by_line_index.get(i)
         if c:
-            if args.mark:
-                print(c.marked_line())
+            if args.mark_page_numbers:
+                filtered.append(c.marked_line())
             elif c.line_without_page_number():
-                print(c.line_without_page_number())
+                filtered.append(c.line_without_page_number())
             else:
                 pass    # only page number on line
         else:
-            print(line)
+            filtered.append(line)
+
+    return ''.join([line+'\n' for line in filtered])
 
 
 def main(argv):
@@ -322,7 +321,10 @@ def main(argv):
         logger.setLevel(logging.INFO)
 
     for fn in args.text:
-        process_page_numbers(fn, args)
+        with open(fn) as f:
+            text = f.read()
+        text = filter_page_numbers(text, args)
+        print(text, end='')
 
 
 if __name__ == '__main__':

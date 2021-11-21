@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# Heuristically filters tables of contents from plain text extracted
+# from PDF. Initially developed for Finnish text.
+
 import sys
 import os
 import re
@@ -9,9 +12,9 @@ from argparse import ArgumentParser
 
 
 # Defaults for command-line arguments
-DEFAULT_MIN_LENGTH = 5
-DEFAULT_MAX_GAP = 3
-DEFAULT_TAG = 'cleanpdfextract:tableofcontents'
+DEFAULT_MIN_TOC_LENGTH = 5
+DEFAULT_MAX_TOC_GAP = 3
+DEFAULT_TOC_TAG = 'cleanpdfextract:tableofcontents'
 
 # Generic regular expressions TOC-related lines
 TOC_LINE_RE = re.compile(r'(\.\s*){5,}(\d+)\s*$')
@@ -25,35 +28,40 @@ TOC_HEADER_RE = {
     'fi': re.compile(r'^\s*(?:\d+\.?\s*)?(sisällys(?:luettelo)?|sisältö)\s*$', re.I)
 }
 
+
 logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 
 
-def argparser():
-    ap = ArgumentParser()
+def add_filter_tocs_args(ap):
     ap.add_argument(
-        '--min-length',
+        '--min-toc-length',
         type=int,
-        default=DEFAULT_MIN_LENGTH,
+        default=DEFAULT_MIN_TOC_LENGTH,
         help='minimum TOC length in lines'
     )
     ap.add_argument(
-        '--max-gap',
+        '--max-toc-gap',
         type=int,
-        default=DEFAULT_MAX_GAP,
+        default=DEFAULT_MAX_TOC_GAP,
         help='maximum gap length between TOC blocks in lines'
     )
     ap.add_argument(
-        '--mark',
+        '--mark-tocs',
         default=False,
         action='store_true',
         help='mark TOCs instead of filtering'
     )
     ap.add_argument(
-        '--tag',
-        default=DEFAULT_TAG,
-        help='tag to use with --mark'
+        '--toc-tag',
+        default=DEFAULT_TOC_TAG,
+        help='tag to use with --mark-tocs'
     )
+
+
+def argparser():
+    ap = ArgumentParser()
+    add_filter_tocs_args(ap)
     ap.add_argument(
         '--debug',
         default=False,
@@ -174,15 +182,15 @@ def group_toc_lines(categorized, args):
 
 def combine_blocks(blocks, args):
     # Repeatedly combine consecutive (start, end) blocks that are no
-    # more than args.max_gap apart where at least one is at least
-    # args.min_length long.
+    # more than args.max_toc_gap apart where at least one is at least
+    # args.min_toc_length long.
 
     def acceptable_block(b):
-        return b[1]-b[0] >= args.min_length
+        return b[1]-b[0] >= args.min_toc_length
 
     def acceptable_gap(b1, b2):
         assert b1[0] < b2[0]
-        return b2[0]-b1[1] <= args.max_gap
+        return b2[0]-b1[1] <= args.max_toc_gap
 
     def can_combine(b1, b2):
         return (
@@ -200,32 +208,32 @@ def combine_blocks(blocks, args):
 
 
 def filter_blocks(blocks, args):
-    return [b for b in blocks if b[1]-b[0] >= args.min_length]
+    return [b for b in blocks if b[1]-b[0] >= args.min_toc_length]
 
 
-def write_output(lines, blocks, args):
+def rebuild_text(lines, blocks, args):
     toc_start_lines = { b for b, e in blocks }
     toc_end_lines = { e-1 for b, e in blocks }
     in_toc = False
+    rebuilt = []
     for i, line in enumerate(lines):
         if i in toc_start_lines:
-            if args.mark:
-                print(f'<{args.tag}>')
+            if args.mark_tocs:
+                rebuilt.append(f'<{args.toc_tag}>')
             else:
-                print()    # replace with blank
+                rebuilt.append('')    # replace with blank
             in_toc = True
-        if args.mark or not in_toc:
-            print(line)
+        if args.mark_tocs or not in_toc:
+            rebuilt.append(line)
         if i in toc_end_lines:
-            if args.mark:
-                print(f'</{args.tag}>')
+            if args.mark_tocs:
+                rebuilt.append(f'</{args.toc_tag}>')
             in_toc = False
 
+    return ''.join([line+'\n' for line in rebuilt])
 
-def process_tocs(fn, args):
-    with open(fn) as f:
-        text = f.read()
 
+def filter_tocs(text, args):
     lines = text.splitlines()
 
     categorized = categorize_toc_lines(lines, args)
@@ -237,7 +245,7 @@ def process_tocs(fn, args):
     blocks = combine_blocks(blocks, args)
     blocks = filter_blocks(blocks, args)
 
-    write_output(lines, blocks, args)
+    return rebuild_text(lines, blocks, args)
 
 
 def main(argv):
@@ -249,7 +257,10 @@ def main(argv):
         logger.setLevel(logging.INFO)
 
     for fn in args.text:
-        process_tocs(fn, args)
+        with open(fn) as f:
+            text = f.read()
+        text = filter_tocs(text, args)
+        print(text, end='')
 
 
 if __name__ == '__main__':
