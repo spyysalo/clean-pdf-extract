@@ -51,10 +51,13 @@ def argparser():
 def remove_nonprintable(string):
     if remove_nonprintable.table is None:
         # keep newlines, tabs, and soft hyphens
-        exceptions = { '\n', '\t', '\u00AD' }
+        keep_exceptions = { '\n', '\t', '\u00AD' }
+        # remove replacement character
+        remove_exceptions = { '\uFFFD' }
         nonprintable = [
             chr(c) for c in range(sys.maxunicode) if
-            not chr(c).isprintable() and chr(c) not in exceptions
+            (not chr(c).isprintable() or chr(c) in remove_exceptions)
+            and chr(c) not in keep_exceptions
         ]
         remove_nonprintable.table = str.maketrans('', '', ''.join(nonprintable))
     return string.translate(remove_nonprintable.table)
