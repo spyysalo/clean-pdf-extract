@@ -9,6 +9,7 @@ import logging
 
 from argparse import ArgumentParser
 
+import chardet
 import ftfy
 
 
@@ -17,6 +18,11 @@ logger = logging.getLogger(os.path.basename(__file__))
 
 
 def add_normalize_encoding_args(ap):
+    ap.add_argument(
+        '--encoding',
+        default=None,
+        help='input text encoding (dectect by default)'
+    )
     ap.add_argument(
         '--no-fix',
         default=False,
@@ -83,14 +89,26 @@ def normalize_encoding(text, args):
     return text
 
 
+def read_text(fn, args):
+    if args.encoding is not None:
+        with open(fn, encoding=args.encoding) as f:
+            return f.read()
+    else:
+        with open(fn, 'rb') as f:
+            data = f.read()
+            detected = chardet.detect(data)
+            if detected['confidence'] < 0.9:
+                logger.warning(f'low chardet confidence for {fn}: {detected}')
+            return data.decode(detected['encoding'])
+
+
 def main(argv):
     args = argparser().parse_args(argv[1:])
 
     logger.setLevel(logging.INFO)
 
     for fn in args.text:
-        with open(fn) as f:
-            text = f.read()
+        text = read_text(fn, args)
         text = normalize_encoding(text, args)
         print(text, end='')
 
